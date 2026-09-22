@@ -1,5 +1,5 @@
 Algorithm,Threads,Schedule,Time_s
-OpenMP,8,"static",2.13416
-OpenMP,8,"static,1000",2.17016
-OpenMP,8,"dynamic,1000",2.17955
-OpenMP,8,"guided",2.17914
+OpenMP,8,"static",2.0776
+OpenMP,8,"static,1000",2.13165
+OpenMP,8,"dynamic,1000",2.12968
+OpenMP,8,"guided",2.15956

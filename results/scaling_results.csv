@@ -1,7 +1,7 @@
 Algorithm,Threads,Schedule,Time_s
-Naive,1,"default",57.8038
-SIMD,1,"default",10.6823
-OpenMP,1,"static",10.6775
-OpenMP,2,"static",5.42247
-OpenMP,4,"static",3.21774
-OpenMP,8,"static",2.11956
+Naive,1,"default",57.8861
+SIMD,1,"default",10.6742
+OpenMP,1,"static",10.7237
+OpenMP,2,"static",5.43072
+OpenMP,4,"static",3.18281
+OpenMP,8,"static",2.12986

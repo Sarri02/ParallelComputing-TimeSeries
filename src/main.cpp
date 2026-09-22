@@ -69,11 +69,13 @@ double run_omp(const double* __restrict__ series, const double* __restrict__ pat
 }
 
 int main(int argc, char *argv[]) {
-    int mode = 2; 
+    int mode = 2; // 0=Naive, 1=SIMD, 2=OpenMP
     int num_threads = 4;
+    int replications = 150; // Valore di default
     
     if (argc > 1) mode = std::stoi(argv[1]);
     if (argc > 2) num_threads = std::stoi(argv[2]);
+    if (argc > 3) replications = std::stoi(argv[3]);
     
     omp_set_num_threads(num_threads);
 
@@ -82,7 +84,6 @@ int main(int argc, char *argv[]) {
     if (time_series_original.empty() || pattern.empty()) return 1;
 
     std::vector<double> time_series;
-    int replications = 150; 
     for(int i = 0; i < replications; ++i) {
         time_series.insert(time_series.end(), time_series_original.begin(), time_series_original.end());
     }
