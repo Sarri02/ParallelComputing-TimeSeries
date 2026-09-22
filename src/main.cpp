@@ -6,93 +6,80 @@
 #include <chrono>
 #include <limits>
 #include <omp.h>
+#include <cstdlib>
 
-// Funzione per caricare una serie temporale da un file CSV
 std::vector<double> load_time_series(const std::string& filename) {
     std::vector<double> series;
     std::ifstream file(filename);
     std::string line;
-    
-    if (!file.is_open()) {
-        std::cerr << "Errore: impossibile aprire il file " << filename << std::endl;
-        return series;
-    }
-
+    if (!file.is_open()) return series;
     while (std::getline(file, line)) {
-        try {
-            series.push_back(std::stod(line));
-        } catch (const std::invalid_argument& e) {
-            continue;
-        }
+        try { series.push_back(std::stod(line)); } catch (...) { continue; }
     }
-    file.close();
     return series;
 }
 
-// Implementazione parallela della ricerca pattern tramite sliding window e SAD
-std::pair<size_t, double> find_best_pattern_match_sad(const std::vector<double>& series_vec, const std::vector<double>& pattern_vec) {
-    size_t n = series_vec.size();
-    size_t m = pattern_vec.size();
-    
-    if (m == 0 || n < m) return {0, -1.0};
+// Le funzioni ora restituiscono il double calcolato per evitare la Dead Code Elimination
+double run_naive(const double* series, const double* pattern, size_t n, size_t m) {
+    double min_sad = std::numeric_limits<double>::max();
+    for (size_t i = 0; i <= n - m; ++i) {
+        double current_sad = 0.0;
+        for (size_t j = 0; j < m; ++j) {
+            current_sad += std::abs(series[i + j] - pattern[j]);
+        }
+        if (current_sad < min_sad) min_sad = current_sad;
+    }
+    return min_sad;
+}
 
-    const double* __restrict__ series = series_vec.data();
-    const double* __restrict__ pattern = pattern_vec.data();
+double run_simd(const double* __restrict__ series, const double* __restrict__ pattern, size_t n, size_t m) {
+    double min_sad = std::numeric_limits<double>::max();
+    for (size_t i = 0; i <= n - m; ++i) {
+        double current_sad = 0.0;
+        #pragma omp simd reduction(+:current_sad)
+        for (size_t j = 0; j < m; ++j) {
+            current_sad += std::abs(series[i + j] - pattern[j]);
+        }
+        if (current_sad < min_sad) min_sad = current_sad;
+    }
+    return min_sad;
+}
 
+double run_omp(const double* __restrict__ series, const double* __restrict__ pattern, size_t n, size_t m) {
     double global_min_sad = std::numeric_limits<double>::max();
-    size_t global_best_index = 0;
-
     #pragma omp parallel
     {
         double local_min_sad = std::numeric_limits<double>::max();
-        size_t local_best_index = 0;
-
-        #pragma omp for schedule(dynamic)
+        
+        #pragma omp for schedule(runtime)
         for (size_t i = 0; i <= n - m; ++i) {
             double current_sad = 0.0;
-            
             #pragma omp simd reduction(+:current_sad)
             for (size_t j = 0; j < m; ++j) {
                 current_sad += std::abs(series[i + j] - pattern[j]);
             }
-            
-            if (current_sad < local_min_sad) {
-                local_min_sad = current_sad;
-                local_best_index = i;
-            }
+            if (current_sad < local_min_sad) local_min_sad = current_sad;
         }
-
         #pragma omp critical
         {
-            if (local_min_sad < global_min_sad) {
-                global_min_sad = local_min_sad;
-                global_best_index = local_best_index;
-            }
+            if (local_min_sad < global_min_sad) global_min_sad = local_min_sad;
         }
     }
-
-    return {global_best_index, global_min_sad};
+    return global_min_sad;
 }
 
 int main(int argc, char *argv[]) {
-    // Gestione del parametro thread da terminale
-    int num_threads = 4; // default
-    if (argc > 1) {
-        num_threads = std::stoi(argv[1]);
-    }
+    int mode = 2; 
+    int num_threads = 4;
+    
+    if (argc > 1) mode = std::stoi(argv[1]);
+    if (argc > 2) num_threads = std::stoi(argv[2]);
+    
     omp_set_num_threads(num_threads);
 
-    std::string series_path = "data/serie_storica.csv";
-    std::string pattern_path = "data/pattern.csv";
-
-    // FASE 1: I/O (Esclusa)
-    std::vector<double> time_series_original = load_time_series(series_path);
-    std::vector<double> pattern = load_time_series(pattern_path);
-
-    if (time_series_original.empty() || pattern.empty()) {
-        std::cerr << "I dataset sono vuoti o non trovati." << std::endl;
-        return 1;
-    }
+    std::vector<double> time_series_original = load_time_series("data/serie_storica.csv");
+    std::vector<double> pattern = load_time_series("data/pattern.csv");
+    if (time_series_original.empty() || pattern.empty()) return 1;
 
     std::vector<double> time_series;
     int replications = 150; 
@@ -100,16 +87,29 @@ int main(int argc, char *argv[]) {
         time_series.insert(time_series.end(), time_series_original.begin(), time_series_original.end());
     }
 
-    // FASE 2: Calcolo puro
+    size_t n = time_series.size();
+    size_t m = pattern.size();
+    const double* s_ptr = time_series.data();
+    const double* p_ptr = pattern.data();
+
+    // L'uso di volatile obbliga il compilatore a eseguire il calcolo per poterlo salvare in memoria
+    volatile double dummy_result = 0.0;
+
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    std::pair<size_t, double> result = find_best_pattern_match_sad(time_series, pattern);
+    if (mode == 0) dummy_result = run_naive(s_ptr, p_ptr, n, m);
+    else if (mode == 1) dummy_result = run_simd(s_ptr, p_ptr, n, m);
+    else if (mode == 2) dummy_result = run_omp(s_ptr, p_ptr, n, m);
     
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> execution_time = end_time - start_time;
     
-    // Stampa compatta: Num_Threads, Tempo_Esecuzione
-    std::cout << num_threads << "," << execution_time.count() << std::endl;
+    const char* env_schedule = std::getenv("OMP_SCHEDULE");
+    std::string sched_str = env_schedule ? env_schedule : "default";
+    std::string mode_str = (mode == 0) ? "Naive" : (mode == 1) ? "SIMD" : "OpenMP";
+    
+    // Stampa: aggiunte le virgolette a sched_str per evitare il troncamento sul CSV
+    std::cout << mode_str << "," << num_threads << ",\"" << sched_str << "\"," << execution_time.count() << std::endl;
 
     return 0;
 }
